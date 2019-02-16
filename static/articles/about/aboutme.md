@@ -16,9 +16,6 @@
 点击这里可以进入[MarkDown编辑器](#/editor),如果你项目也使用了[highlight.js](https://github.com/highlightjs/highlight.js.git) + [Remarkable.js](https://github.com/jonschlinkert/remarkable), 
 那么可以使用这里的编辑器编辑。
 
-## 关于日历
-[点击进入日历](#/calender)
-
 编辑器可以: 
 1. 拖拽编辑。
 2. 两种主题`dark`+`light`, 点击导航的`MODE`切换。
@@ -26,6 +23,10 @@
 4. 自动3秒保存到你的浏览器`localstorage`。
 5. 支持`markdown`目录。
 6. 支持页内跳转和`vue`中的`hash`路由跳转。
+
+## 关于日历
+[点击进入日历](#/calender)
+[介绍日历](https://yuanronghhh.github.io/ghpage/#/articles/detail?article_path=%2Fstatic%2Farticles%2Fdevelop%2Fnode%2Fcalender_lib.md)
 
 ## 关于网页
 之前用纯js写的，现在用`Vue`重写了，添加了些东西。[源码](https://github.com/yuanronghhh/ghpage)。
