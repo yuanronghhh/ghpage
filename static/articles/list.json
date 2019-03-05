@@ -45,6 +45,13 @@
       "path": "static/articles/record/w3wp.md"
     },
     {
+      "title": "csharp_\u9762\u8bd5\u7684\u4e00\u9053\u9898\u9898\u76ee",
+      "profile": "20190304\u9762\u8bd5\u7684\u51e0\u4e2a\u9898\u76ee",
+      "create_at": "2019-03-04T00:00:00",
+      "update_at": "2019-03-04T00:00:00",
+      "path": "static/articles/record/csharp_20190304_interview.md"
+    },
+    {
       "title": "x-plore\u5728\u5b89\u5353\u5e73\u53f0\u4f9d\u7136\u5f3a\u5927",
       "profile": "\u60f3\u4ecb\u7ecd\u4e00\u4e0bx-plore\uff0c\u5f88\u5389\u5bb3\u7684\u6587\u4ef6\u7ba1\u7406\u5668\uff0c\u975e\u5e38\u65b9\u4fbf",
       "create_at": "2017-03-10T12:10:01",
