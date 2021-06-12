@@ -138,19 +138,18 @@ class FTPHelper(FTP):
 
     def ftp_init(self, server):
         if not server:
-            raise Exception("FTP url is not found.")
+            return
 
         uri = re.match(r"(?P<schema>\w*)://(?P<user>\w+){0,1}:(?P<password>\w+){0,1}@(?P<host>[\d\.0-9]*):(?P<port>\d*)", server)
         if not uri:
-            raise Exception("Not correct FTP uri format: '%s'. see command help." % (server))
+            raise Exception("Not correct ftp uri format: %s" % (server))
 
         if uri[1] != "ftp":
-            raise Exception("Schema not FTP")
+            raise Exception("Schema not ftp")
 
         self.connect(uri[4], int(uri[5]))
         self.login(uri[2], uri[3])
         self.encoding = "gbk"
-        logging.info("FTP connect success")
 
     def checkExist(self, path):
         try:
@@ -266,45 +265,24 @@ class Publisher:
             logging.warning("A zip name should be given.")
             return
 
-        if not Path(zipName).parent.exists():
-            os.makedirs(Path(zipName).parent)
-            # logging.error("ZIP parent directory should exist: \"%s\"" % (zipName))
-
         zp = zipfile.ZipFile(zipName, 'w')
 
-        for b in binFiles:
-            bPath = Path(b)
-            absBin = bPath if bPath.is_absolute() else self.srcDirectory.joinpath(b)
-
+        for f in binFiles:
+            absBin = Path(rootPath).joinpath(f)
             if not absBin.exists():
                 logging.warning("Not exist file: %s" % (pubBin.as_posix()))
                 continue
 
-            if withRootPath and not bPath.is_absolute():
-                zRelName = "%s/%s" % (self.rootPath, b)
+            if withRootPath:
+                zRelName = "%s/%s" % (self.rootPath, f)
             else:
-                zRelName = "%s" % (bPath.name)
+                zRelName = "%s" % (f)
 
             logging.debug("Adding to zip: %s" % (zRelName))
             zp.write(absBin.as_posix(), zRelName, compress_type=zipfile.ZIP_BZIP2)
 
         zp.close()
         logging.info("Create zip success: %s" % zipName)
-
-    def get_publish_bin_path(self, b):
-        absBin = None
-        if Path(b).is_absolute():
-            if not publishInfo["forceRootPublish"]:
-                logging.warning("Please use \"--frp\" when publish absolute file: \
-\"%s\"" % (b))
-                return None
-
-            absBin = Path(b)
-        else:
-            absBin = self.srcDirectory.joinpath(b)
-
-        return absBin
-
 
     def publish_to_ftp(self, binFiles, server, withRootPath = True):
         try:
@@ -314,9 +292,7 @@ class Publisher:
             return
 
         for b in binFiles:
-            absBin = self.get_publish_bin_path(b)
-            if not absBin:
-                continue
+            absBin = self.srcDirectory.joinpath(b)
 
             if not absBin.exists():
                 logging.warning("Not exist file: %s" % (absBin))
@@ -340,9 +316,6 @@ class Publisher:
             # logging.debug("Making directory: %s" % (pubBin.parent.as_posix()))
             os.makedirs(pubBin.parent.as_posix())
 
-        if absBin.as_posix() == pubBin.as_posix():
-            return
-
         return shutil.copy2(absBin.as_posix(), pubBin.as_posix())
 
     def publish_local(self, binFiles, publishDirectory, withRootPath = True):
@@ -351,34 +324,20 @@ class Publisher:
         if withRootPath is None:
             withRootPath = True
 
-        absBin = None
-        pubBin = None
-
         for b in binFiles:
-            bPath = Path(b)
-            if bPath.is_absolute():
-                if not publishInfo["forceRootPublish"]:
-                    logging.warning("Please use \"--frp\" when publish absolute file: \
-    \"%s\"" % (b))
-                    return
-
-                absBin = Path(b)
-            else:
-                absBin = self.srcDirectory.joinpath(b)
+            absBin = self.srcDirectory.joinpath(b)
 
             if not absBin.exists():
                 logging.warning("Not exist file: %s" % (absBin))
                 continue
 
-            rName = b if not bPath.is_absolute() else bPath.name
             if withRootPath:
-                if bPath.is_absolute():
-                    rName = "%s" % (b)
-                else:
-                    rName = "%s/%s" % (self.rootPath, rName)
+                pubBin = publishDirectory.joinpath(self.rootPath).joinpath(b)
+                logging.debug("Copying: %s/%s" % (self.rootPath, b))
+            else:
+                pubBin = publishDirectory.joinpath(b)
+                logging.debug("Copying: %s" % (b))
 
-            pubBin = publishDirectory.joinpath(rName)
-            logging.debug("Copying: %s" % (rName))
             Publisher.copy_to_local(absBin, pubBin)
 
         logging.info("Publish success: %s" % (publishDirectory.as_posix()))
@@ -397,32 +356,58 @@ def get_all_files(path):
 
     return files
 
-def get_svn_files_by_revision(svnLocal, v1, v2):
+def get_svn_vnumber_by_time(svnLocal, svnDiffTime):
+    if not svnLocal:
+        return None
+
+    stime = None
+    etime = None
+    try:
+        vTime = svnDiffTime.split(":")
+        stime = datetime.strptime(vTime[0], "%Y-%m-%d")
+        etime = datetime.strptime(vTime[1], "%Y-%m-%d")
+    except Exception as err:
+        logging.error(err.args[0])
+        return
+
+    vs = []
+
+    sm = svnLocal.log_default(stime, etime)
+    for l in sm:
+        vs.append(l.revision)
+
+    if len(vs) < 2:
+        logging.error("svntdiff too close")
+        return
+
+    vNumber = [vs[0], vs[-1]]
+    return vNumber
+
+def get_svn_vnumber_by_version(svLocal, svnDiffVersion):
+    try:
+        vNumber = [int(n) for n in svnDiffVersion.split(":")]
+        if len(vNumber) != 2:
+            raise Exception("Two version number need to be given")
+
+        return vNumber
+    except Exception as err:
+        logging.error(err.args[0])
+        return None
+
+def get_svn_files_by_version(svnLocal, v1, v2):
     if not svnLocal:
         return []
 
-    exts = publishInfo["svnExtentions"] if "svnExtentions" in publishInfo else None
-    if not exts:
-        exts = ["html", "cshtml", "js", "css", "ejs", "ttf", "woff",
-                "xlsx", "xls", "doc", "docx",
-                "webp", "jpeg", "jpg", "png", "ico"]
+    exts = ["cshtml", "js", "css", "xlsx", "xls", "doc", "docx",
+            "jpeg", "jpg", "png", "ico"]
 
     sm = svnLocal.diff_summary(v1, v2)
-    lFiles = []
-    for i in sm:
-        fPath = Path(i["path"])
-
-        if fPath.suffix.lstrip(".") in exts:
-            lFiles.append(i["path"])
-
-        if fPath.suffix == ".config":
-            logging.warning("Config file \"%s\" modification detected, you may publish it later." % (fPath.as_posix()))
-            continue
-
+    lFiles = [i["path"] for i in sm if Path(i["path"]).suffix.lstrip(".") in exts]
     return lFiles
 
+# GroupAPI 发布
 def publish_it(projectInfo):
-    logging.info("Start publish, You may need update your project first.")
+    logging.info("Start publish")
 
     publishLocal = publishInfo["publishLocal"] if "publishLocal" in publishInfo else False
     publishFTP = publishInfo["publishFTP"] if "publishFTP" in publishInfo else False
@@ -441,10 +426,6 @@ def publish_it(projectInfo):
     ftpURI = publishInfo["ftpURI"] if "ftpURI" in publishInfo else None
     zipPath = None
     binFiles = []
-
-    if not publishZIP and not publishFTP and not publishLocal:
-        logging.warning("No files need copy, please give '-l' or '-z' or '-ftp' parameter.")
-        return
 
     if not version:
         version = datetime.now().strftime("%Y%m%d%H%M")
@@ -480,13 +461,9 @@ def publish_it(projectInfo):
         srcDirectory = projectInfo["srcDirectory"] if "srcDirectory" in projectInfo else None
         projectName = projectInfo["projectName"] if "projectName" in projectInfo else None
         binFiles = projectInfo["binFiles"] if "binFiles" in projectInfo else None
-        allFiles = projectInfo["allFiles"] if "allFiles" in projectInfo else False
 
         if binFiles is None:
-            binFiles = []
-
-        if allFiles:
-           binFiles.extend(get_all_files(srcDirectory))
+            binFiles = get_all_files(srcDirectory)
 
         if not projectName:
             logging.error("projectName parameter is required")
@@ -505,15 +482,25 @@ def publish_it(projectInfo):
             if not rootPath:
                 rootPath = projectName
 
-        svnDiffRevision = svnDiffTime if svnDiffTime else svnDiffVersion
-        if svnDiffRevision:
-            vNumber = svnDiffRevision.split(":") if svnDiffRevision.find(":") > -1 else [svnDiffRevision, "HEAD"]
-            svnLocal = svn.local.LocalClient(srcDirectory.as_posix())
-            if svnDiffTime:
-                vNumber[0] = "{%s}" % (vNumber[0])
-                vNumber[1] = "{%s}" % (vNumber[1])
+        vNumber = None
+        svnLocal = None
 
-            lFiles = get_svn_files_by_revision(svnLocal, vNumber[0], vNumber[1])
+        if svnDiffTime:
+            svnLocal = svn.local.LocalClient(srcDirectory.as_posix())
+            vNumber = get_svn_vnumber_by_time(svnLocal, svnDiffTime)
+            if not vNumber:
+                return
+
+        elif svnDiffVersion:
+            vNumber = get_svn_vnumber_by_version(svnLocal, svnDiffVersion)
+            if not vNumber:
+                return
+        else:
+            vNumber = None
+
+        if vNumber:
+            svnLocal = svnLocal if svnLocal else svn.local.LocalClient(srcDirectory.as_posix())
+            lFiles = get_svn_files_by_version(svnLocal, vNumber[0], vNumber[1])
             binFiles.extend(lFiles)
 
         pub = Publisher(rootPath, srcDirectory.as_posix())
@@ -529,7 +516,7 @@ def publish_it(projectInfo):
                 dirs = [publishDirectory.joinpath(i).as_posix() for i in directoriesToZIP.split(",")]
                 pub.gen_zip_from_directories(zipPath.as_posix(), dirs, False)
             except Exception as err:
-                logging.error(err.args[1])
+                logging.error(err.args[0])
                 return
     if publishFTP:
         pub.publish_to_ftp(binFiles, ftpURI, withRootPath)
@@ -552,13 +539,13 @@ def print_help():
 
 参数：
     -l --local                              发布到本地
-    -c --config <file-name.json>            配置文件
     [-f | --ftp <ftp-uri>]                  FTP配置
     -z | --zip <zip-name>                   发布到zip文件中
     -m <d1,d2>                              将多个发布目录中的文件夹打包成zip，可以配合-z参数
     -p | --project <project-name>           必要参数
     -v --version <version>                  发布版本, 默认当前时间精确到分
-    --svnvdiff v1:v2 [--exts <exts>]        根据svn版本，发布静态文件, 可以使用--exts指定后缀, 逗号分隔
+    --zip-directories <d1,d2>               根据文件夹，打包到zip中
+    --svnvdiff v1:v2                        根据svn版本，发布静态文件
     --svntdiff t1:t2                        根据svn时间，发布静态文件, 精确到天
     [-d <publish-path>]                     本地发布路径
     [-s <src-path>]                         本地源路径
@@ -571,34 +558,17 @@ ftp-uri:
 
 def set_config(cName):
     global publishInfo
-    try:
-        cfg = open(cName, mode="r", encoding="utf-8")
-        publishInfo = json.loads(re.sub("#[^\n]*","",cfg.read()))
-        cfg.close()
-        return True
-    except Exception as err:
-        logging.error("%s: '%s'" % (err.args[1], cName))
-        return False
+    cfg = open(cName, mode="r", encoding="utf-8")
+    publishInfo = json.loads(re.sub("#[^\n]*","",cfg.read()))
+    cfg.close()
 
 def main():
     argv = sys.argv
 
     projectList = []
     projectInfo = None
-    cfgName = "publish.json"
 
-    idx = index_args(argv, ["h", "help"], True)
-    if idx > -1:
-        print_help()
-        return
-
-    # config file
-    idx = index_args(argv, ["c", "config"])
-    if idx > -1:
-        cfgName = argv[idx]
-
-    if not set_config(cfgName):
-        return
+    set_config("publish.json")
 
     # ZIP
     idx = index_args(argv, ["z", "zip"], True)
@@ -613,19 +583,12 @@ def main():
             if idx > -1:
                 publishInfo["zipVersion"] = argv[idx]
 
-    # 允许发布根路径文件, 仅现支持zip, 使用此参数可强制覆盖发布
-    idx = index_args(argv, ["frp"], True)
-    if idx > -1:
-        publishInfo["forceRootPublish"] = True
-    else:
-        publishInfo["forceRootPublish"] = False
-
     # FTP
-    idx = index_args(argv, ["ftp"], True)
+    idx = index_args(argv, ["f", "ftp"], True)
     if idx > -1:
         publishInfo["publishFTP"] = True
 
-        idx = index_args(argv, ["ftp"])
+        idx = index_args(argv, ["f", "ftp"])
         if idx > -1:
             publishInfo["ftpURI"] = argv[idx]
 
@@ -702,14 +665,6 @@ def main():
         if idx > -1:
             publishInfo["svnDiffTime"] = argv[idx]
 
-    # extension
-    if "svnDiffTime" in publishInfo or "svnDiffVersion" or publishInfo:
-        idx = index_args(argv, "exts")
-        if idx > -1:
-            if argv[idx].find(",") > -1:
-                publishInfo["svnExtentions"] = argv[idx].split(",")
-            else:
-                publishInfo["svnExtentions"] = [argv[idx]]
 
     publish_it(projectInfo)
 
